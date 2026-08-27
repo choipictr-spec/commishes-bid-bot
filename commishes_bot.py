@@ -16,12 +16,85 @@ CHAT_ID = os.environ["CHAT_ID"]
 
 CHECK_INTERVAL = 30
 
+# Railway Volume будет подключён сюда
+DATA_FILE = "/data/auctions.json"
+
+
+# ==========================================
+# ХРАНЕНИЕ АУКЦИОНОВ
+# ==========================================
+
+def load_auctions():
+
+    os.makedirs(
+        "/data",
+        exist_ok=True
+    )
+
+    if not os.path.exists(DATA_FILE):
+        return {}
+
+    try:
+
+        with open(
+            DATA_FILE,
+            "r",
+            encoding="utf-8"
+        ) as file:
+
+            return json.load(file)
+
+    except Exception as error:
+
+        print(
+            f"⚠️ Не удалось загрузить аукционы: {error}"
+        )
+
+        return {}
+
+
+def save_auctions():
+
+    try:
+
+        os.makedirs(
+            "/data",
+            exist_ok=True
+        )
+
+        temp_file = DATA_FILE + ".tmp"
+
+        with open(
+            temp_file,
+            "w",
+            encoding="utf-8"
+        ) as file:
+
+            json.dump(
+                auctions,
+                file,
+                ensure_ascii=False,
+                indent=4
+            )
+
+        os.replace(
+            temp_file,
+            DATA_FILE
+        )
+
+    except Exception as error:
+
+        print(
+            f"⚠️ Не удалось сохранить аукционы: {error}"
+        )
+
 
 # ==========================================
 # COMMISHES
 # ==========================================
 
 def get_auction(url):
+
     json_url = url.rstrip("/")
 
     if not json_url.endswith(".json"):
@@ -37,7 +110,10 @@ def get_auction(url):
         }
     )
 
-    response = urllib.request.urlopen(request, timeout=15)
+    response = urllib.request.urlopen(
+        request,
+        timeout=15
+    )
 
     return json.loads(
         response.read().decode("utf-8")
@@ -45,11 +121,19 @@ def get_auction(url):
 
 
 def get_auction_info(url):
+
     data = get_auction(url)
+
     payload = data["payload"]
 
-    slot = next(iter(payload["slots"].values()))
-    bids = slot.get("bids", [])
+    slot = next(
+        iter(payload["slots"].values())
+    )
+
+    bids = slot.get(
+        "bids",
+        []
+    )
 
     return {
         "id": str(payload["id"]),
@@ -66,6 +150,7 @@ def get_auction_info(url):
 # ==========================================
 
 def get_auction_id(url):
+
     match = re.search(
         r"/auction/show/([^/]+)",
         url
@@ -81,13 +166,18 @@ def get_auction_id(url):
 # TELEGRAM
 # ==========================================
 
-def telegram_request(method, params=None):
+def telegram_request(
+    method,
+    params=None
+):
+
     url = (
         f"https://api.telegram.org/"
         f"bot{TELEGRAM_TOKEN}/{method}"
     )
 
     if params:
+
         data = urllib.parse.urlencode(
             params
         ).encode("utf-8")
@@ -96,8 +186,12 @@ def telegram_request(method, params=None):
             url,
             data=data
         )
+
     else:
-        request = urllib.request.Request(url)
+
+        request = urllib.request.Request(
+            url
+        )
 
     response = urllib.request.urlopen(
         request,
@@ -110,7 +204,9 @@ def telegram_request(method, params=None):
 
 
 def send_telegram(message):
+
     try:
+
         telegram_request(
             "sendMessage",
             {
@@ -120,30 +216,22 @@ def send_telegram(message):
         )
 
     except Exception as error:
+
         print(
             f"⚠️ Ошибка Telegram: {error}"
         )
 
 
 # ==========================================
-# ХРАНЕНИЕ АУКЦИОНОВ
-# ==========================================
-
-# Для Railway используем простой файл.
-# При перезапуске Railway список может сброситься,
-# поэтому позже можем подключить постоянное хранилище.
-
-auctions = {}
-
-
-# ==========================================
-# ДОБАВЛЕНИЕ
+# ДОБАВЛЕНИЕ АУКЦИОНА
 # ==========================================
 
 def add_auction(url):
+
     auction_id = get_auction_id(url)
 
     if not auction_id:
+
         raise ValueError(
             "Не удалось определить ID аукциона."
         )
@@ -151,29 +239,54 @@ def add_auction(url):
     info = get_auction_info(url)
 
     if auction_id in auctions:
-        return False, auction_id, info
+
+        return (
+            False,
+            auction_id,
+            info
+        )
 
     auctions[auction_id] = {
+
         "url": (
             f"https://ych.commishes.com/"
             f"auction/show/{auction_id}/"
         ),
+
         "title": info["title"],
+
         "last_bid": info["bid"],
-        "last_bids_count": len(info["bids"]),
+
+        "last_bids_count": len(
+            info["bids"]
+        ),
+
         "endsunix": info["endsunix"]
     }
 
-    return True, auction_id, info
+    save_auctions()
+
+    return (
+        True,
+        auction_id,
+        info
+    )
 
 
 # ==========================================
 # УДАЛЕНИЕ
 # ==========================================
 
-def remove_auction(auction_id):
+def remove_auction(
+    auction_id
+):
+
     if auction_id in auctions:
+
         del auctions[auction_id]
+
+        save_auctions()
+
         return True
 
     return False
@@ -189,7 +302,6 @@ def process_message(message):
         message["chat"]["id"]
     )
 
-    # Только твой аккаунт может управлять ботом
     if chat_id != CHAT_ID:
         return
 
@@ -198,23 +310,19 @@ def process_message(message):
         ""
     ).strip()
 
-    if not text:
-        return
 
-
-    # --------------------------------------
+    # ======================================
     # /start
-    # --------------------------------------
+    # ======================================
 
     if text == "/start":
 
         send_telegram(
             "🌸 Commishes Bid Watcher\n\n"
-            "Я слежу за ставками на "
-            "YCH.Commishes.\n\n"
+            "Я слежу за ставками на YCH.Commishes.\n\n"
             "Команды:\n"
             "/add <ссылка> — добавить аукцион\n"
-            "/remove <ID> — удалить аукцион\n"
+            "/remove <ID> — удалить\n"
             "/list — список аукционов\n"
             "/check — проверить сейчас"
         )
@@ -222,9 +330,9 @@ def process_message(message):
         return
 
 
-    # --------------------------------------
+    # ======================================
     # /list
-    # --------------------------------------
+    # ======================================
 
     if text == "/list":
 
@@ -255,9 +363,9 @@ def process_message(message):
         return
 
 
-    # --------------------------------------
+    # ======================================
     # /add
-    # --------------------------------------
+    # ======================================
 
     if text.startswith("/add"):
 
@@ -269,7 +377,7 @@ def process_message(message):
 
             send_telegram(
                 "Использование:\n\n"
-                "/add https://ych.commishes.com/auction/..."
+                "/add ссылка-на-аукцион"
             )
 
             return
@@ -278,8 +386,8 @@ def process_message(message):
 
         try:
 
-            added, auction_id, info = add_auction(
-                url
+            added, auction_id, info = (
+                add_auction(url)
             )
 
             if added:
@@ -290,8 +398,7 @@ def process_message(message):
                     f"💰 Текущая ставка: ${info['bid']}\n"
                     f"👥 Ставок: {len(info['bids'])}\n"
                     f"🆔 {auction_id}\n\n"
-                    f"https://ych.commishes.com/"
-                    f"auction/show/{auction_id}/"
+                    f"{auctions[auction_id]['url']}"
                 )
 
             else:
@@ -313,9 +420,9 @@ def process_message(message):
         return
 
 
-    # --------------------------------------
+    # ======================================
     # /remove
-    # --------------------------------------
+    # ======================================
 
     if text.startswith("/remove"):
 
@@ -337,22 +444,21 @@ def process_message(message):
         if remove_auction(auction_id):
 
             send_telegram(
-                "🗑 Перестал следить за аукционом."
+                "🗑 Аукцион удалён из отслеживания."
             )
 
         else:
 
             send_telegram(
-                f"❌ Аукцион {auction_id} "
-                "не найден."
+                f"❌ Аукцион {auction_id} не найден."
             )
 
         return
 
 
-    # --------------------------------------
+    # ======================================
     # /check
-    # --------------------------------------
+    # ======================================
 
     if text == "/check":
 
@@ -361,6 +467,10 @@ def process_message(message):
         )
 
         check_auctions()
+
+        send_telegram(
+            "✅ Проверка завершена."
+        )
 
         return
 
@@ -386,6 +496,7 @@ def telegram_listener():
             }
 
             if offset is not None:
+
                 params["offset"] = offset
 
             result = telegram_request(
@@ -407,7 +518,10 @@ def telegram_listener():
                 )
 
                 if message:
-                    process_message(message)
+
+                    process_message(
+                        message
+                    )
 
         except Exception as error:
 
@@ -431,7 +545,9 @@ def check_auctions():
         auctions.keys()
     ):
 
-        auction = auctions[auction_id]
+        auction = auctions[
+            auction_id
+        ]
 
         try:
 
@@ -440,12 +556,16 @@ def check_auctions():
             )
 
             current_bids = info["bids"]
+
             old_count = auction[
                 "last_bids_count"
             ]
 
 
-            # Новые ставки
+            # ==================================
+            # НОВЫЕ СТАВКИ
+            # ==================================
+
             if len(current_bids) > old_count:
 
                 new_bids = current_bids[
@@ -473,22 +593,31 @@ def check_auctions():
                     )
 
                     print(
-                        f"🔔 {info['title']} — "
-                        f"{username}: ${amount}"
+                        f"🔔 {username}: ${amount}"
                     )
 
 
-            auction["last_bid"] = info["bid"]
+            # ==================================
+            # СОХРАНЯЕМ
+            # ==================================
+
+            auction["last_bid"] = (
+                info["bid"]
+            )
 
             auction["last_bids_count"] = (
                 len(current_bids)
             )
 
-            auction["title"] = info["title"]
+            auction["title"] = (
+                info["title"]
+            )
 
             auction["endsunix"] = (
                 info["endsunix"]
             )
+
+            save_auctions()
 
             print(
                 f"✓ {info['title']} — "
@@ -509,15 +638,21 @@ def check_auctions():
 # ЗАПУСК
 # ==========================================
 
+auctions = load_auctions()
+
 print()
 print("🌸 Commishes Bid Watcher")
 print("========================")
-print("Telegram подключён.")
-print("Бот запущен!")
+print(
+    f"Аукционов загружено: {len(auctions)}"
+)
 print()
 
 
-# Запускаем Telegram listener
+# ==========================================
+# TELEGRAM
+# ==========================================
+
 telegram_thread = threading.Thread(
     target=telegram_listener,
     daemon=True
@@ -528,8 +663,7 @@ telegram_thread.start()
 
 send_telegram(
     "🌸 Commishes Bid Watcher запущен!\n\n"
-    "Напиши /add и ссылку на YCH, "
-    "чтобы начать отслеживание."
+    f"Аукционов загружено: {len(auctions)}"
 )
 
 
