@@ -14,7 +14,8 @@ import threading
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
-CHECK_INTERVAL = 30
+# Проверять аукционы раз в 60 секунд
+CHECK_INTERVAL = 60
 
 # Railway Volume будет подключён сюда
 DATA_FILE = "/data/auctions.json"
@@ -565,12 +566,38 @@ def check_auctions():
             # ==================================
             # НОВЫЕ СТАВКИ
             # ==================================
+            #
+            # YCH Commishes отдаёт bids
+            # от самой новой ставки к старой.
+            #
+            # Например:
+            #
+            # Было:
+            # [30]
+            #
+            # Стало:
+            # [40, 30]
+            #
+            # Поэтому нельзя использовать:
+            # current_bids[old_count:]
+            #
+            # Вместо этого берём новые элементы
+            # с начала списка.
+            # ==================================
 
             if len(current_bids) > old_count:
 
+                new_bids_count = (
+                    len(current_bids) - old_count
+                )
+
                 new_bids = current_bids[
-                    old_count:
+                    :new_bids_count
                 ]
+
+                # Отправляем новые ставки
+                # от старой к самой новой
+                new_bids.reverse()
 
                 for bid in new_bids:
 
